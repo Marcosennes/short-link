@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: contracts, path: libs/contracts, module: shortlink_contracts }
+          - { name: link-service, path: services/link-service, module: link_service }
+          - { name: redirect-service, path: services/redirect-service, module: redirect_service }
+          - { name: analytics-service, path: services/analytics-service, module: analytics_service }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.6"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --all-packages --frozen
+
+      - name: Lint
+        run: uv run ruff check ${{ matrix.path }}
+
+      - name: Format check
+        run: uv run ruff format --check ${{ matrix.path }}
+
+      - name: Unit tests
+        run: >
+          uv run pytest ${{ matrix.path }}/tests/unit
+          --cov=${{ matrix.module }} --cov-branch
+          --cov-report=term --cov-report=xml:coverage-${{ matrix.name }}.xml
+          --cov-fail-under=80
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.name }}
+          path: coverage-${{ matrix.name }}.xml
+
+  docker-build:
+    name: docker build (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [link-service, redirect-service, analytics-service]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -f services/${{ matrix.service }}/Dockerfile -t shortlink/${{ matrix.service }}:ci .
+
+  # Single required check for branch protection: green only if every job above passed.
+  ci-ok:
+    if: always()
+    needs: [test, docker-build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then
+            exit 1
+          fi
