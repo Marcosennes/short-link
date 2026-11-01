@@ -30,6 +30,11 @@ known-first-party = ["shortlink_contracts", "link_service", "redirect_service", 
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--import-mode=importlib"
+markers = ["integration: needs the Compose infrastructure (skipped when unavailable)"]
+
+[tool.coverage.run]
+# Migrations only run against a real database (covered by integration tests / Compose).
+omit = ["*/migrations/*"]
 
 [tool.coverage.report]
 show_missing = true
