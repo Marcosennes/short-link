@@ -6,6 +6,11 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "shortlink-contracts",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.32.0",
+    "alembic>=1.20.1",
+    "aiokafka>=0.15.0",
+    "pydantic-settings>=2.16.2",
 ]
 
 [tool.uv.sources]
