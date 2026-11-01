@@ -1,0 +1,10 @@
+[project]
+name = "shortlink-contracts"
+version = "0.1.0"
+description = "Event schemas shared by the Shortlink services"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.10"]
+
+[build-system]
+requires = ["uv_build>=0.13,<0.14"]
+build-backend = "uv_build"
