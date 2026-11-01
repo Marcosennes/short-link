@@ -1,8 +1,17 @@
 name: shortlink
 
-# Phase 1: infrastructure only. Application services are added in later phases.
-
 x-kafka-image: &kafka-image apache/kafka:3.9.1
+
+# link-service API, its migration job and the outbox relay share one image and config.
+x-link-service: &link-service
+  image: shortlink/link-service:dev
+  build:
+    context: .
+    dockerfile: services/link-service/Dockerfile
+  environment:
+    LINK_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-shortlink}:${POSTGRES_PASSWORD:-shortlink}@postgres:5432/${POSTGRES_DB:-links}
+    LINK_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    LINK_PUBLIC_BASE_URL: http://localhost:${GATEWAY_HOST_PORT:-8000}/r
 
 services:
   gateway:
@@ -103,6 +112,44 @@ services:
             --create --if-not-exists --topic "$$topic" --partitions 3 --replication-factor 1
         done
     restart: "no"
+
+  # ---------- application services ----------
+
+  link-migrate:
+    <<: *link-service
+    command: ["python", "-m", "link_service.migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  link-service:
+    <<: *link-service
+    depends_on:
+      link-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.links.rule=PathPrefix(`/api/links`)
+      - traefik.http.routers.links.middlewares=strip-api
+      - traefik.http.middlewares.strip-api.stripprefix.prefixes=/api
+      - traefik.http.services.links.loadbalancer.server.port=8000
+    restart: unless-stopped
+
+  outbox-relay:
+    <<: *link-service
+    command: ["python", "-m", "link_service.relay"]
+    depends_on:
+      link-migrate:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
   # ---------- inspection tools: docker compose --profile tools up -d ----------
   kafka-ui:
